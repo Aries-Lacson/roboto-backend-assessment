@@ -14,13 +14,29 @@ import {
   User,
 } from "lucide-react";
 import type {
+  DefaultDocumentNodeResolver,
   StructureBuilder,
   StructureResolverContext,
 } from "sanity/structure";
 
 import { createSlugBasedStructure } from "@/components/nested-pages-structure";
+import { SeoIndexView } from "@/components/seo-index-view";
 import type { SchemaType, SingletonType } from "@/schemaTypes/index";
 import { getTitleCase } from "@/utils/helper";
+
+export const defaultDocumentNode: DefaultDocumentNodeResolver = (
+  S,
+  { schemaType }
+) => {
+  if (schemaType === "blog") {
+    return S.document().views([
+      S.view.form().id("editor").title("Editor"),
+      S.view.component(SeoIndexView).id("seo-index").title("SEO & Index"),
+    ]);
+  }
+
+  return S.document().views([S.view.form()]);
+};
 
 type Base<T = SchemaType> = {
   id?: string;
@@ -36,6 +52,7 @@ type CreateSingleTon = {
 
 const createSingleTon = ({ S, type, title, icon }: CreateSingleTon) => {
   const newTitle = title ?? getTitleCase(type);
+
   return S.listItem()
     .title(newTitle)
     .icon(icon ?? File)
@@ -48,6 +65,7 @@ type CreateList = {
 
 const createList = ({ S, type, icon, title, id }: CreateList) => {
   const newTitle = title ?? getTitleCase(type);
+
   return S.documentTypeListItem(type)
     .id(id ?? type)
     .title(newTitle)
@@ -69,6 +87,7 @@ const createIndexListWithOrderableItems = ({
 }: CreateIndexList) => {
   const indexTitle = index.title ?? getTitleCase(index.type);
   const listTitle = list.title ?? getTitleCase(list.type);
+
   return S.listItem()
     .title(listTitle)
     .icon(index.icon ?? File)
@@ -90,7 +109,7 @@ const createIndexListWithOrderableItems = ({
             S,
             context,
             icon: list.icon ?? File,
-            title: `${listTitle}`,
+            title: listTitle,
           }),
         ])
     );

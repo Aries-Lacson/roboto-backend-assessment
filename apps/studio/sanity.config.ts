@@ -13,15 +13,15 @@ import { mainDocuments } from "@/documents";
 import { locations } from "@/location";
 import { presentationUrl } from "@/plugins/presentation-url";
 import { schemaTypes, singletonTypes } from "@/schemaTypes/index";
-import { structure } from "@/structure";
+import { defaultDocumentNode, structure } from "@/structure";
 import { getPresentationUrl } from "@/utils/helper";
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID ?? "";
 const dataset = process.env.SANITY_STUDIO_DATASET ?? "production";
 const title = process.env.SANITY_STUDIO_TITLE;
 
-// Singletons plus plugin-owned types are never created from the global "new
-// document" menu — they're reached through the structure or their plugin.
+// Singletons and plugin-owned documents are reached through their
+// dedicated structure entries or plugins.
 const hiddenTemplateIds = new Set([
   ...singletonTypes,
   "assist.instruction.context",
@@ -53,28 +53,28 @@ export default defineConfig({
     }),
     structureTool({
       structure,
+      defaultDocumentNode,
     }),
     presentationUrl(),
     visionTool(),
     lucideIconPicker(),
     unsplashImageAsset(),
     media(),
-    // Plugin defaults: `video_quality: "plus"`, 1080p ceiling, public
-    // playback. Uploads are billed, so choose per project — `basic` is
-    // cheaper, `premium` plus `max_resolution_tier: "2160p"` unlocks 4K,
-    // `static_renditions` adds downloadable MP4s. `tool: false` hides the
-    // "Videos" tab this adds to the nav.
+    // Defaults: plus video quality, 1080p, public playback.
+    // Uploads are billed; configure these options per project.
     muxInput(),
     assist(),
   ],
   document: {
     newDocumentOptions: (prev, { creationContext }) => {
       const { type } = creationContext;
+
       if (type === "global") {
         return prev.filter(
           (template) => !hiddenTemplateIds.has(template?.templateId)
         );
       }
+
       return prev;
     },
   },
