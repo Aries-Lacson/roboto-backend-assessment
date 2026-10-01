@@ -8,7 +8,13 @@ import { SanityImage } from "@workspace/sanity-blocks/internal/sanity-image";
 import { cn } from "@workspace/tailwind-config/utils";
 import { Button } from "@workspace/ui/components/button";
 import { LoaderCircle } from "lucide-react";
-import type { ComponentProps } from "react";
+import {
+  type ComponentProps,
+  type FormEvent,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { useFormStatus } from "react-dom";
 
 export interface NewsletterTestimonial {
@@ -29,18 +35,27 @@ export interface SubscribeNewsletterProps {
   title?: string | null;
 }
 
-function SubscribeNewsletterButton() {
+type Feedback = {
+  kind: "success" | "error";
+  message: string;
+};
+
+function SubscribeNewsletterButton({
+  submitting,
+}: Readonly<{ submitting: boolean }>) {
   const { pending } = useFormStatus();
+  const busy = pending || submitting;
+
   return (
     <Button
-      aria-label={pending ? "Subscribing..." : "Subscribe to newsletter"}
+      aria-label={busy ? "Subscribing..." : "Subscribe to newsletter"}
       className="shrink-0 rounded-none px-5 py-2.5"
-      disabled={pending}
+      disabled={busy}
       size="sm"
       type="submit"
       variant="secondary"
     >
-      {pending ? (
+      {busy ? (
         <LoaderCircle
           aria-hidden="true"
           className="animate-spin"
@@ -51,7 +66,7 @@ function SubscribeNewsletterButton() {
         "Subscribe"
       )}
       <span aria-live="polite" className="sr-only" role="status">
-        {pending ? "Subscribing…" : ""}
+        {busy ? "Subscribing…" : ""}
       </span>
     </Button>
   );
@@ -61,6 +76,7 @@ function TestimonialPanel({
   testimonial,
 }: Readonly<{ testimonial: NewsletterTestimonial }>) {
   const { eyebrow, quote, authorImage, authorName, authorRole } = testimonial;
+
   return (
     <div className="bleed-x bg-grid-dots p-[var(--container-px,0.5rem)] text-zinc-800 lg:mx-0 lg:p-8 dark:text-zinc-50">
       <div className="flex h-full flex-col gap-12 bg-background p-8">
@@ -110,8 +126,103 @@ export function SubscribeNewsletter({
   onSubmit,
   testimonial,
 }: Readonly<SubscribeNewsletterProps>) {
-  // A cleared Sanity object is still truthy; only treat the testimonial as
-  // present when it actually carries content.
+  const feedbackId = useId();
+  const inFlight = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  // Preserve explicit actions and handlers supplied by other consumers.
+  const useDefaultSignup =
+    action === undefined &&
+    onSubmit === undefined &&
+    (method === undefined || method.toLowerCase() === "post");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (inFlight.current) {
+      return;
+    }
+
+    const form = event.currentTarget;
+
+    // Capture the value before disabling the input; disabled fields are
+    // excluded from FormData.
+    const email = new FormData(form).get("email");
+
+    if (typeof email !== "string") {
+      setFeedback({
+        kind: "error",
+        message: "Please enter a valid email address.",
+      });
+      return;
+    }
+
+    inFlight.current = true;
+    setSubmitting(true);
+    setFeedback(null);
+
+    try {
+      const response = await fetch("/api/newsletter", {
+        method: "POST",
+        body: new URLSearchParams({ email }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (response.status === 429) {
+        const seconds = Number(response.headers.get("Retry-After"));
+        const hasWait = Number.isFinite(seconds) && seconds > 0;
+
+        setFeedback({
+          kind: "error",
+          message: hasWait
+            ? `Too many attempts. Try again in ${Math.ceil(seconds)} seconds.`
+            : "Too many attempts. Please try again later.",
+        });
+        return;
+      }
+
+      if (response.status === 400) {
+        setFeedback({
+          kind: "error",
+          message: "Please enter a valid email address.",
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error("Subscription failed");
+      }
+
+      const result: unknown = await response.json();
+
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !("success" in result) ||
+        result.success !== true
+      ) {
+        throw new Error("Unexpected subscription response");
+      }
+
+      form.reset();
+      setFeedback({
+        kind: "success",
+        message: "You're subscribed.",
+      });
+    } catch {
+      // Keep the address in the form so a failed request can be retried.
+      setFeedback({
+        kind: "error",
+        message: "We couldn't subscribe you. Please try again later.",
+      });
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  // A cleared Sanity object is still truthy; check for actual content.
   const hasTestimonialContent = Boolean(
     testimonial &&
       (testimonial.eyebrow ||
@@ -149,21 +260,39 @@ export function SubscribeNewsletter({
             </div>
             <div className="flex w-full flex-col items-start gap-3">
               <form
-                action={action}
+                action={action ?? (useDefaultSignup ? "/api/newsletter" : undefined)}
+                aria-busy={submitting}
                 className="flex w-full items-center gap-1.5 bg-muted py-1.5 pr-1.5 pl-4 has-[input:focus-visible]:[outline:2px_dotted_var(--foreground)] has-[input:focus-visible]:outline-offset-2"
                 method={method ?? "post"}
-                onSubmit={onSubmit}
+                onSubmit={useDefaultSignup ? handleSubmit : onSubmit}
               >
                 <input
+                  aria-describedby={feedback ? feedbackId : undefined}
                   aria-label="Email address"
+                  autoComplete="email"
                   className="w-full min-w-0 flex-1 bg-transparent py-1.5 text-base text-foreground outline-none [--autofill-bg:var(--muted)] placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+                  disabled={submitting}
+                  maxLength={254}
                   name="email"
                   placeholder="Enter your email address"
                   required
                   type="email"
                 />
-                <SubscribeNewsletterButton />
+                <SubscribeNewsletterButton submitting={submitting} />
               </form>
+              <p
+                aria-live="polite"
+                className={cn(
+                  "text-sm",
+                  feedback?.kind === "success"
+                    ? "text-green-700 dark:text-green-400"
+                    : "text-red-700 dark:text-red-400"
+                )}
+                id={feedbackId}
+                role="status"
+              >
+                {feedback?.message ?? ""}
+              </p>
               {helperText && (
                 <RichText
                   className="text-muted-foreground text-sm leading-5 [&_a]:rounded-none [&_a]:font-medium [&_a]:text-foreground [&_a]:underline [&_a]:decoration-solid"

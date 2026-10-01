@@ -12,20 +12,24 @@ const env = createEnv({
   server: {
     SANITY_API_READ_TOKEN: z.string().min(1),
     SANITY_API_WRITE_TOKEN: z.string().min(1),
-    // Shared secret for the `/api/revalidate-sync-tags` webhook. Optional so
-    // existing deployments still boot; the webhook fails closed when unset.
+
+    // Existing deployments can boot without webhook configuration.
+    // The receiving route rejects requests until its secret is configured.
     SANITY_REVALIDATE_SECRET: z.string().min(1).optional(),
+
     // FAQ ask box; `/api/ask` returns 503 until both are set.
     SANITY_CONTEXT_ENDPOINT: z.url().optional(),
     SANITY_CONTEXT_TOKEN: z.string().min(1).optional(),
+
+    // Public endpoints fail closed if their shared limiter is unavailable.
+    UPSTASH_REDIS_REST_URL: z.url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
   },
 
   experimental__runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
   },
 
-  // Treat empty env strings (e.g. `SANITY_REVALIDATE_SECRET=` in .env.example)
-  // as unset, so `.optional()` vars don't fail `.min(1)` on a blank value.
   emptyStringAsUndefined: true,
 
   extends: [vercel()],
