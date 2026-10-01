@@ -19,9 +19,6 @@ import { Logo } from "@/components/logo";
 import { MobileMenu } from "@/components/mobile-menu";
 import type { ColumnLink, NavigationData } from "@/types";
 
-// Focus-visible mirrors the `hover-surface` wash so keyboard and pointer land
-// on the same colour. The `data-nav-on` overrides win over both, keeping the
-// translucent treatment where the bar sits on a fixed-ground section.
 const NAV_LINK_CLASS =
   "hover-surface h-auto rounded-full bg-transparent px-3 py-2 font-light font-mono text-foreground text-sm uppercase tracking-normal outline-none focus-visible:bg-zinc-100 focus-visible:[outline:2px_dotted_currentColor]! focus-visible:outline-offset-2! dark:focus-visible:bg-zinc-900 data-[nav-on=dark]:text-white data-[nav-on=dark]:hover:bg-white/15 data-[nav-on=dark]:focus-visible:bg-white/15 data-[nav-on=light]:text-zinc-900 data-[nav-on=light]:hover:bg-zinc-900/10 data-[nav-on=light]:focus-visible:bg-zinc-900/10";
 
@@ -30,9 +27,6 @@ const TRIGGER_CLASS = cn(
   "data-popup-open:bg-zinc-100 dark:data-popup-open:bg-zinc-900 data-[nav-on=dark]:data-popup-open:bg-white/15 data-[nav-on=light]:data-popup-open:bg-zinc-900/10"
 );
 
-// The outline pill draws itself in theme ink, which lands white-on-bright over
-// a section whose ground is fixed regardless of theme. Filled variants carry
-// their own ground and need nothing.
 const NAV_OUTLINE_ADAPTIVE =
   "group-data-[nav-on=dark]:data-[variant=outline]:border-white group-data-[nav-on=dark]:data-[variant=outline]:text-white group-data-[nav-on=light]:data-[variant=outline]:border-zinc-900 group-data-[nav-on=light]:data-[variant=outline]:text-zinc-900";
 
@@ -41,8 +35,6 @@ const NAV_BUTTON_CLASS = cn(
   NAV_OUTLINE_ADAPTIVE
 );
 
-// Anchored in px from the wrapper's bottom (`to top`), so the bar keeps this
-// progression at rest.
 const BLUR_LAYERS = [
   {
     radius: 24,
@@ -100,8 +92,7 @@ function ProgressiveBlur() {
 
 type MarkedSection = { rect: DOMRect; value: string };
 
-// Contrast of the last marked section covering both the bar and this item's
-// centre. Last wins, so a section stacked over another takes precedence.
+// The last section covering the bar and the item's centre determines contrast.
 function contrastUnder(
   itemRect: DOMRect,
   marked: MarkedSection[],
@@ -109,21 +100,23 @@ function contrastUnder(
 ) {
   const itemX = itemRect.left + itemRect.width / 2;
   let value = "";
+
   for (const { rect, value: markedValue } of marked) {
     const covered = Math.min(rect.bottom, barBottom) - Math.max(rect.top, 0);
+
     if (covered >= barBottom * 0.6 && rect.left < itemX && rect.right > itemX) {
       value = markedValue;
     }
   }
+
   return value;
 }
 
-// Stamps the section's contrast on a link, or clears it when no section covers
-// it. Compared first so an unchanged value never touches the DOM.
 function applyContrast(el: HTMLElement, value: string) {
   if ((el.dataset.navOn ?? "") === value) {
     return;
   }
+
   if (value) {
     el.dataset.navOn = value;
   } else {
@@ -131,20 +124,19 @@ function applyContrast(el: HTMLElement, value: string) {
   }
 }
 
-// Section-aware contrast: sections that read dark or bright regardless of
-// theme carry data-nav-contrast="dark|light". While one covers most of the
-// bar, its value is stamped on each link so they can invert instantly.
 function useNavContrast(headerRef: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const header = headerRef.current;
+
     if (!header) {
       return;
     }
+
     let frame = 0;
-    // Cached and refreshed only when the DOM actually changes (route
-    // transitions, streamed content) — scrolling never re-queries.
     let markedEls: HTMLElement[] = [];
     let adaptiveEls: HTMLElement[] = [];
+    let needsRefresh = false;
+
     const refresh = () => {
       markedEls = [
         ...document.querySelectorAll<HTMLElement>("[data-nav-contrast]"),
@@ -153,41 +145,64 @@ function useNavContrast(headerRef: React.RefObject<HTMLElement | null>) {
         ...header.querySelectorAll<HTMLElement>("[data-nav-adaptive]"),
       ];
     };
+
     const measure = (el: HTMLElement): MarkedSection => ({
       rect: el.getBoundingClientRect(),
       value: el.dataset.navContrast ?? "",
     });
-    let needsRefresh = false;
+
     const update = () => {
       frame = 0;
+
       if (needsRefresh) {
         needsRefresh = false;
         refresh();
       }
-      if (markedEls.length === 0 && adaptiveEls.length === 0) {
+
+      if (adaptiveEls.length === 0) {
         return;
       }
+
+      // Without marked sections, clear contrast without measuring geometry.
+      if (markedEls.length === 0) {
+        for (const el of adaptiveEls) {
+          applyContrast(el, "");
+        }
+
+        return;
+      }
+
+      // Complete every geometry read before writing any styling attributes.
       const barBottom = header.getBoundingClientRect().bottom;
       const marked = markedEls.map(measure);
-      for (const el of adaptiveEls) {
-        const rect = el.getBoundingClientRect();
-        applyContrast(el, contrastUnder(rect, marked, barBottom));
+      const updates = adaptiveEls.map((el) => ({
+        el,
+        value: contrastUnder(el.getBoundingClientRect(), marked, barBottom),
+      }));
+
+      for (const { el, value } of updates) {
+        applyContrast(el, value);
       }
     };
+
     const schedule = () => {
       if (!frame) {
         frame = requestAnimationFrame(update);
       }
     };
+
     const observer = new MutationObserver(() => {
       needsRefresh = true;
       schedule();
     });
+
     observer.observe(document.body, { childList: true, subtree: true });
     refresh();
     update();
+
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
+
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
@@ -205,10 +220,9 @@ export function Navbar({
   const { columns, buttons, gitHubUrl } = navbarData || {};
   const { siteTitle, logos } = settingsData || {};
   const headerRef = useRef<HTMLElement>(null);
+
   useNavContrast(headerRef);
-  // Nothing in the bar marks where you are: the active item is styled no
-  // differently from the rest, so `aria-current` is the only signal a screen
-  // reader can get. Purely semantic — it paints nothing.
+
   const pathname = usePathname();
   const currentPage = (href?: string | null) =>
     href && href === pathname ? ("page" as const) : undefined;
@@ -273,10 +287,12 @@ export function Navbar({
                     </NavigationMenuItem>
                   );
                 }
+
                 if (column.type === "link") {
                   if (!column.href) {
                     return null;
                   }
+
                   return (
                     <NavigationMenuItem key={column._key}>
                       <NavigationMenuLink
@@ -290,6 +306,7 @@ export function Navbar({
                     </NavigationMenuItem>
                   );
                 }
+
                 return null;
               })}
             </NavigationMenuList>
