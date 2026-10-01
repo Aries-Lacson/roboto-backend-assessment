@@ -14,6 +14,10 @@ type BlogSearchResultsProps = Readonly<{
   searchQuery: string;
   error?: Error | null;
   onClear?: () => void;
+  page: number;
+  totalHits: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
 }>;
 
 function Term({ children }: Readonly<{ children: string }>) {
@@ -52,7 +56,7 @@ function StateFrame({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 const ACTION_CLASS =
-  "focus-ring inline-flex min-h-11 w-max shrink-0 items-center rounded-none border border-foreground px-3 font-mono text-foreground text-sm uppercase tracking-wide transition-colors hover:bg-foreground hover:text-background";
+  "focus-ring inline-flex min-h-11 w-max shrink-0 items-center rounded-none border border-foreground px-3 font-mono text-foreground text-sm uppercase tracking-wide transition-colors hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-40";
 
 function EmptySearchState({
   query,
@@ -66,8 +70,8 @@ function EmptySearchState({
       <div className="grid gap-6">
         <SearchResultsHeader count={0} query={query} />
         <p className="max-w-[70ch] text-pretty text-foreground">
-          We couldn&rsquo;t find any articles matching <Term>{query}</Term>. Try
-          adjusting your search terms.
+          We couldn&rsquo;t find any articles matching <Term>{query}</Term>.
+          Try another term or category.
         </p>
       </div>
       {onClear ? (
@@ -79,21 +83,19 @@ function EmptySearchState({
   );
 }
 
-function ErrorState({ query }: Readonly<{ query: string }>) {
+function ErrorState({
+  query,
+  error,
+}: Readonly<{ query: string; error: Error }>) {
   return (
     <div className="grid gap-6">
       <SearchResultsHeader count={0} query={query} />
       <h3 className={cn(STATE_TITLE, "text-destructive")}>Search failed</h3>
-      <p className="max-w-[70ch] text-pretty text-muted-foreground">
-        We encountered an error while searching for <Term>{query}</Term>. Please
-        try again.
+      <p role="alert" className="max-w-[70ch] text-pretty text-muted-foreground">
+        {error.message}
       </p>
     </div>
   );
-}
-
-function LoadingState() {
-  return <output className="block text-muted-foreground">Searching…</output>;
 }
 
 export function BlogSearchResults({
@@ -104,6 +106,10 @@ export function BlogSearchResults({
   searchQuery,
   error,
   onClear,
+  page,
+  totalHits,
+  totalPages,
+  onPageChange,
 }: BlogSearchResultsProps) {
   if (!hasQuery) {
     return null;
@@ -111,8 +117,8 @@ export function BlogSearchResults({
 
   if (isSearching) {
     return (
-      <section className={cn("mt-8", className)}>
-        <LoadingState />
+      <section aria-busy="true" className={cn("mt-8", className)}>
+        <output className="block text-muted-foreground">Searching…</output>
       </section>
     );
   }
@@ -122,7 +128,18 @@ export function BlogSearchResults({
       <section className={cn("min-h-full", className)}>
         <StateFrame>
           {error ? (
-            <ErrorState query={searchQuery} />
+            <ErrorState error={error} query={searchQuery} />
+          ) : totalHits > 0 && page > 1 ? (
+            <>
+              <p>No articles remain on this page.</p>
+              <button
+                className={ACTION_CLASS}
+                onClick={() => onPageChange(1)}
+                type="button"
+              >
+                Back to page 1
+              </button>
+            </>
           ) : (
             <EmptySearchState onClear={onClear} query={searchQuery} />
           )}
@@ -133,8 +150,37 @@ export function BlogSearchResults({
 
   return (
     <section className={cn("mt-8 grid gap-6", className)}>
-      <SearchResultsHeader count={results.length} query={searchQuery} />
+      <SearchResultsHeader count={totalHits} query={searchQuery} />
       <BlogList blogs={results} />
+
+      {totalPages > 1 ? (
+        <nav
+          aria-label="Search result pages"
+          className="flex flex-wrap items-center gap-3"
+        >
+          <button
+            className={ACTION_CLASS}
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            type="button"
+          >
+            Previous
+          </button>
+
+          <span className="text-muted-foreground text-sm tabular-nums">
+            Page {page} of {totalPages}
+          </span>
+
+          <button
+            className={ACTION_CLASS}
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            type="button"
+          >
+            Next
+          </button>
+        </nav>
+      ) : null}
     </section>
   );
 }

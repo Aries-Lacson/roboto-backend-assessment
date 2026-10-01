@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "@workspace/tailwind-config/utils";
-import type { ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, type ReactNode } from "react";
 
 import { SearchInput } from "@/components/blog-search";
 import { BlogSearchResults } from "@/components/blog-search-results";
@@ -13,13 +14,26 @@ type BlogSearchLayoutProps = {
   list: ReactNode;
 };
 
-export function BlogSearchLayout({
+function BlogSearchLayoutContent({
   categoryFilter,
   featured,
   list,
 }: Readonly<BlogSearchLayoutProps>) {
-  const { searchQuery, setSearchQuery, results, isSearching, hasQuery, error } =
-    useBlogSearch();
+  const searchParams = useSearchParams();
+  const category = searchParams.get("category") ?? "";
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    results,
+    isSearching,
+    hasQuery,
+    error,
+    page,
+    setPage,
+    totalHits,
+    totalPages,
+  } = useBlogSearch(category);
 
   const isDeadEnd =
     hasQuery && !isSearching && (Boolean(error) || results.length === 0);
@@ -34,11 +48,12 @@ export function BlogSearchLayout({
     if (error) {
       return "Search failed";
     }
-    if (results.length === 0) {
+    if (totalHits === 0) {
       return `No articles found for ${searchQuery}`;
     }
-    const plural = results.length === 1 ? "" : "s";
-    return `${results.length} article${plural} found for ${searchQuery}`;
+
+    const plural = totalHits === 1 ? "" : "s";
+    return `${totalHits} article${plural} found for ${searchQuery}. Page ${page} of ${totalPages}.`;
   })();
 
   return (
@@ -69,15 +84,22 @@ export function BlogSearchLayout({
             isDeadEnd ? "lg:h-0 lg:min-h-full" : "content-start"
           )}
         >
-          <output className="sr-only">{searchStatus}</output>
+          <output aria-live="polite" className="sr-only">
+            {searchStatus}
+          </output>
+
           {hasQuery ? (
             <BlogSearchResults
               error={error}
               hasQuery={hasQuery}
               isSearching={isSearching}
               onClear={() => setSearchQuery("")}
+              onPageChange={setPage}
+              page={page}
               results={results}
               searchQuery={searchQuery}
+              totalHits={totalHits}
+              totalPages={totalPages}
             />
           ) : (
             list
@@ -85,5 +107,21 @@ export function BlogSearchLayout({
         </div>
       </div>
     </>
+  );
+}
+
+export function BlogSearchLayout(
+  props: Readonly<BlogSearchLayoutProps>
+) {
+  return (
+    <Suspense
+      fallback={
+        <output className="mt-10 block text-muted-foreground">
+          Loading blog…
+        </output>
+      }
+    >
+      <BlogSearchLayoutContent {...props} />
+    </Suspense>
   );
 }
